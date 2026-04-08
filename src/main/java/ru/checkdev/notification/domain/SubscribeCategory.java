@@ -14,6 +14,7 @@ import lombok.NoArgsConstructor;
 @Entity(name = "cd_subscribe_category")
 public class SubscribeCategory implements Base {
     @Id
+    @jakarta.persistence.Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
     private int userId;

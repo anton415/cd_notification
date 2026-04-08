@@ -17,6 +17,7 @@ import java.sql.Timestamp;
 public class InnerMessage implements Base {
 
     @Id
+    @jakarta.persistence.Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
     private int userId;
