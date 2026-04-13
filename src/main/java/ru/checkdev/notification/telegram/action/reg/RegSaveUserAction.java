@@ -71,7 +71,7 @@ public class RegSaveUserAction implements Action {
             return Optional.of(new SendMessage(chatId.toString(), text));
         }
         text = new StringBuilder().append("Вы зарегистрированы: ").append(ls)
-                .append("Имя: ").append(profile.getUsername()).append(ls)
+                .append("ФИО: ").append(profile.getUsername()).append(ls)
                 .append("Email: ").append(profile.getEmail()).append(ls)
                 .append("Пароль : ").append(password).append(ls)
                 .append(urlSiteAuth).toString();

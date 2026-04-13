@@ -40,7 +40,7 @@ public class CheckAction implements Action {
             UserTelegram userTelegram = chatIdOptional.get();
             Profile profile = tgCall
                     .doGet(URL_AUTH_CURRENT + userTelegram.getUserId()).block();
-            out.append("Имя:")
+            out.append("ФИО:")
                     .append(sl)
                     .append(profile.getUsername())
                     .append(sl)

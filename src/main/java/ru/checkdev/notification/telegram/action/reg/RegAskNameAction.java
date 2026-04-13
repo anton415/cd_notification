@@ -35,7 +35,7 @@ public class RegAskNameAction implements Action {
             text = "Данный аккаунт Telegram уже зарегистрирован на сайте";
             bindingActions().remove(chatId.toString());
         } else {
-            text = "Введите имя для регистрации нового пользователя:";
+            text = "Введите ФИО для регистрации нового пользователя:";
         }
         return Optional.of(new SendMessage(chatId.toString(), text));
     }

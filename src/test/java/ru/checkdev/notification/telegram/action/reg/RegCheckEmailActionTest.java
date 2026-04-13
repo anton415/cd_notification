@@ -7,7 +7,9 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Chat;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import ru.checkdev.notification.dto.ProfileTgDTO;
 import ru.checkdev.notification.telegram.SessionTg;
+import ru.checkdev.notification.telegram.service.TgCallStub;
 
 import java.util.Optional;
 
@@ -23,13 +25,15 @@ class RegCheckEmailActionTest {
 
     private RegCheckEmailAction regCheckEmailAction;
     private SessionTg sessionTg;
+    private TgCallStub tgCallStub;
     private Message message;
     private Update update;
 
     @BeforeEach
     public void init() {
         sessionTg = new SessionTg();
-        regCheckEmailAction = new RegCheckEmailAction(sessionTg);
+        tgCallStub = new TgCallStub();
+        regCheckEmailAction = new RegCheckEmailAction(sessionTg, tgCallStub);
         message = new Message();
         update = new Update();
     }
@@ -45,6 +49,25 @@ class RegCheckEmailActionTest {
                 .append(message.getText())
                 .append(" не корректный.").append(ls)
                 .append("попробуйте снова.").append(ls)
+                .append("/new").toString();
+
+        SendMessage sendMessage = (SendMessage) regCheckEmailAction.handle(update).get();
+        String actual = sendMessage.getText();
+
+        assertThat(actual).isEqualTo(expect);
+    }
+
+    @Test
+    void whenRegCheckEmailActionEmailAlreadyExistsThenReturnMessageEmailBusy() {
+        message.setChat(CHAT);
+        message.setText("occupied@email.ru");
+        update.setMessage(message);
+        sessionTg.put(String.valueOf(CHAT.getId()), "email", message.getText());
+        tgCallStub.withPostHandler((url, profile) -> new ProfileTgDTO(1, "user", profile.getEmail()));
+        String ls = System.lineSeparator();
+        String expect = new StringBuilder().append("Пользователь с почтой ")
+                .append(message.getText())
+                .append(" уже зарегистрирован.").append(ls)
                 .append("/new").toString();
 
         SendMessage sendMessage = (SendMessage) regCheckEmailAction.handle(update).get();

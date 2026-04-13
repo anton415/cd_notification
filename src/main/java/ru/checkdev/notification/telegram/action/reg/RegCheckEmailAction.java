@@ -1,12 +1,15 @@
 package ru.checkdev.notification.telegram.action.reg;
 
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import ru.checkdev.notification.domain.Profile;
 import ru.checkdev.notification.telegram.SessionTg;
 import ru.checkdev.notification.telegram.action.Action;
 import ru.checkdev.notification.telegram.config.TgConfig;
+import ru.checkdev.notification.telegram.service.TgCall;
 
 import java.util.Optional;
 
@@ -21,8 +24,11 @@ import java.util.Optional;
  * Пятый вызов регистрации проверяем введенный email пользователя.
  */
 @AllArgsConstructor
+@Slf4j
 public class RegCheckEmailAction implements Action {
+    private static final String URL_PROFILE_BY_EMAIL = "/profiles/tg/byEmail";
     private final SessionTg sessionTg;
+    private final TgCall tgCall;
     private final TgConfig tgConfig = new TgConfig(10);
 
     @Override
@@ -37,9 +43,28 @@ public class RegCheckEmailAction implements Action {
                     .append("попробуйте снова.").append(sl)
                     .append("/new").toString();
             sessionTg.put(chatId.toString(), "email", "");
+            bindingActions().remove(chatId.toString());
             return Optional.of(new SendMessage(chatId.toString(), text));
-        } else {
-            return Optional.empty();
         }
+        Profile profile = new Profile();
+        profile.setEmail(email);
+        try {
+            Object result = tgCall.doPost(URL_PROFILE_BY_EMAIL, profile).block();
+            if (result != null) {
+                text = new StringBuilder().append("Пользователь с почтой ")
+                        .append(email)
+                        .append(" уже зарегистрирован.").append(sl)
+                        .append("/new").toString();
+                sessionTg.put(chatId.toString(), "email", "");
+                bindingActions().remove(chatId.toString());
+                return Optional.of(new SendMessage(chatId.toString(), text));
+            }
+        } catch (Exception e) {
+            log.error("WebClient doPost error: {}", e.getMessage());
+            bindingActions().remove(chatId.toString());
+            text = String.format("Сервис недоступен, попробуйте позже%s%s", sl, "/start");
+            return Optional.of(new SendMessage(chatId.toString(), text));
+        }
+        return Optional.empty();
     }
 }

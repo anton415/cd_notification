@@ -22,6 +22,9 @@ import java.util.Calendar;
 @Slf4j
 @RequiredArgsConstructor
 public class FakeTgCallConsole implements TgCall {
+    private static final String URL_PROFILE_BY_EMAIL = "/profiles/tg/byEmail";
+    private static final String URL_PROFILE_BY_EMAIL_AND_PASSWORD = "/profiles/tg/byEmailAndPassword";
+    private static final String OCCUPIED_MAIL = "occupied@email.ru";
     /**
      * Поле заведено для отладки тестов
      * При указании данного email пользователя сервис бросает exception
@@ -51,6 +54,19 @@ public class FakeTgCallConsole implements TgCall {
     public Mono<Object> doPost(String url, Profile profile) {
         if (ERROR_MAIL.equals(profile.getEmail())) {
             throw new IllegalArgumentException("Service is error");
+        }
+        if (URL_PROFILE_BY_EMAIL.equals(url)) {
+            if (OCCUPIED_MAIL.equals(profile.getEmail())) {
+                ProfileTgDTO profileTgDTO = new ProfileTgDTO(-23, "FakeName", profile.getEmail());
+                log.info("Fake TgCall doPost method. Request URL: {}{}, model: {}", uriProvider.getUri(SERVICE_ID), url, profile);
+                return Mono.just(profileTgDTO);
+            }
+            return Mono.empty();
+        }
+        if (URL_PROFILE_BY_EMAIL_AND_PASSWORD.equals(url)) {
+            ProfileTgDTO profileTgDTO = new ProfileTgDTO(-23, "FakeName", profile.getEmail());
+            log.info("Fake TgCall doPost method. Request URL: {}{}, model: {}", uriProvider.getUri(SERVICE_ID), url, profile);
+            return Mono.just(profileTgDTO);
         }
         ProfileTgDTO profileTgDTO = new ProfileTgDTO(-23, profile.getUsername(), profile.getEmail());
         log.info("Fake TgCall doPost method. Request URL: {}{}, model: {}", uriProvider.getUri(SERVICE_ID), url, profile);

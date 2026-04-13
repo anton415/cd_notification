@@ -14,6 +14,10 @@ public class UserTelegramService {
     private final UserTelegramRepository repository;
 
     public boolean save(UserTelegram userTelegram) {
+        if (repository.findByChatId(userTelegram.getChatId()).isPresent()
+                || repository.findByUserId(userTelegram.getUserId()).isPresent()) {
+            return false;
+        }
         try {
             repository.save(userTelegram);
             return true;

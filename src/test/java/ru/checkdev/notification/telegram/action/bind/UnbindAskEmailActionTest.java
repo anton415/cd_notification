@@ -1,4 +1,4 @@
-package ru.checkdev.notification.telegram.action.reg;
+package ru.checkdev.notification.telegram.action.bind;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,52 +13,43 @@ import ru.checkdev.notification.service.UserTelegramService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * @author Dmitry Stepanov, user Dmitry
- * @since 27.11.2023
- */
-class RegAskNameActionTest {
-
+class UnbindAskEmailActionTest {
     private static final Chat CHAT = new Chat(1L, "type");
 
     private UserTelegramService userTelegramService;
-    private RegAskNameAction regAskNameAction;
+    private UnbindAskEmailAction unbindAskEmailAction;
     private Message message;
     private Update update;
 
     @BeforeEach
-    public void init() {
+    void setUp() {
         userTelegramService = new UserTelegramService(
                 new UserTelegramRepositoryFake(
                         new SubscribeTopicRepositoryFake()));
-        regAskNameAction = new RegAskNameAction(userTelegramService);
+        unbindAskEmailAction = new UnbindAskEmailAction(userTelegramService);
         message = new Message();
         update = new Update();
     }
 
     @Test
-    void whenAskNameActionChatIdIsPresentThenReturnMessageUserIsPresent() {
+    void whenUnbindAskEmailWithoutBindingThenReturnMessage() {
         message.setChat(CHAT);
         update.setMessage(message);
-        UserTelegram userTelegram = new UserTelegram(0, 1, CHAT.getId(), false);
-        userTelegramService.save(userTelegram);
-        String expect = "Данный аккаунт Telegram уже зарегистрирован на сайте";
 
-        SendMessage sendMessage = (SendMessage) regAskNameAction.handle(update).get();
-        String actual = sendMessage.getText();
+        SendMessage sendMessage = (SendMessage) unbindAskEmailAction.handle(update).get();
 
-        assertThat(actual).isEqualTo(expect);
+        assertThat(sendMessage.getText())
+                .isEqualTo("К данному аккаунту Telegram не привязан аккаунт CheckDev");
     }
 
     @Test
-    void whenAskNameActionChatIdIsEmptyThenReturnMessageEnterName() {
+    void whenUnbindAskEmailThenReturnPrompt() {
         message.setChat(CHAT);
         update.setMessage(message);
-        String expect = "Введите ФИО для регистрации нового пользователя:";
+        userTelegramService.save(new UserTelegram(0, 1, CHAT.getId(), false));
 
-        SendMessage sendMessage = (SendMessage) regAskNameAction.handle(update).get();
-        String actual = sendMessage.getText();
+        SendMessage sendMessage = (SendMessage) unbindAskEmailAction.handle(update).get();
 
-        assertThat(actual).isEqualTo(expect);
+        assertThat(sendMessage.getText()).isEqualTo("Введите email (логин) пользователя:");
     }
 }
