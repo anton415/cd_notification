@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-import ru.checkdev.notification.service.EurekaUriProvider;
 import ru.checkdev.notification.service.UserTelegramService;
 import ru.checkdev.notification.telegram.action.Action;
 import ru.checkdev.notification.telegram.action.bind.*;
@@ -39,9 +38,8 @@ public class TgConfigFake {
     private String username;
     @Value("${tg.token}")
     private String token;
-
-    private final EurekaUriProvider uriProvider;
-    private static final String SERVICE_ID = "site";
+    @Value("${server.site.url.login}")
+    private String siteLoginUrl;
 
     @Bean
     public Bot initTg() {
@@ -60,9 +58,8 @@ public class TgConfigFake {
                         new RegPutNameAction(sessionTg),
                         new RegAskEmailAction(userTelegramService),
                         new RegPutEmailAction(sessionTg),
-                        new RegCheckEmailAction(sessionTg),
-                        new RegSaveUserAction(sessionTg, tgCall, userTelegramService,
-                                String.format("%s/login", uriProvider.getUri(SERVICE_ID)))
+                        new RegCheckEmailAction(sessionTg, tgCall),
+                        new RegSaveUserAction(sessionTg, tgCall, userTelegramService, siteLoginUrl)
                 ),
                 "/check", List.of(new CheckAction(sessionTg, tgCall, userTelegramService)),
                 "/notify", List.of(new NotifyAction(sessionTg, userTelegramService)),
