@@ -77,7 +77,12 @@ public class TgConfig {
                         new BindAskPasswordAction(),
                         new BindPutPasswordAction(sessionTg),
                         new BindAccountAction(sessionTg, tgCall, userTelegramService)),
-                "/unbind", List.of(new UnbindAccountAction(userTelegramService))
+                "/unbind", List.of(
+                        new UnbindAskEmailAction(userTelegramService),
+                        new BindPutEmailAction(sessionTg),
+                        new BindAskPasswordAction(),
+                        new BindPutPasswordAction(sessionTg),
+                        new UnbindAccountAction(sessionTg, tgCall, userTelegramService))
         );
         TgBot menu = new TgBot(actionMap, username, token);
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);

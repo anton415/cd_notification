@@ -22,7 +22,7 @@ public class BindAskPasswordAction implements Action {
     @Override
     public Optional<BotApiMethod> handle(Update update) {
         var chatId = update.getMessage().getChatId();
-        var text = "Введите пароль:";
+        var text = "Введите пароль аккаунта CheckDev:";
         return Optional.of(new SendMessage(chatId.toString(), text));
     }
 }

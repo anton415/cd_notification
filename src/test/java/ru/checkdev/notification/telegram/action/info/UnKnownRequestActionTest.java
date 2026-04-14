@@ -20,9 +20,7 @@ class UnKnownRequestActionTest {
         message.setChat(chat);
         UnKnownRequestAction unKnownRequestAction = new UnKnownRequestAction();
         unKnownRequestAction.handle(update);
-        String expect = String.format(
-                "Команда не поддерживается! Список доступных команд: %s/start",
-                System.lineSeparator());
+        String expect = "Команда не поддерживается! Список доступных команд: /start";
 
         BotApiMethod botApiMethod = unKnownRequestAction.handle(update).get();
         SendMessage sendMessage = (SendMessage) botApiMethod;
