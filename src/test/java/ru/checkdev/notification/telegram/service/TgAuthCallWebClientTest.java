@@ -2,6 +2,7 @@ package ru.checkdev.notification.telegram.service;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -137,7 +138,7 @@ class TgAuthCallWebClientTest {
         assertThatThrownBy(() -> tgAuthCallWebClient.doGet("/person/503").block())
                 .hasMessageContaining("503");
         assertThatThrownBy(() -> tgAuthCallWebClient.doGet("/person/503").block())
-                .hasMessageContaining("Circuit breaker is OPEN");
+                .isInstanceOf(CallNotPermittedException.class);
         assertThat(attempts.get()).isEqualTo(3);
     }
 

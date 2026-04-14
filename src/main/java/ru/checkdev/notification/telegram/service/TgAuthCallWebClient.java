@@ -1,5 +1,12 @@
 package ru.checkdev.notification.telegram.service;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
+import io.github.resilience4j.reactor.retry.RetryOperator;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,7 +15,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
 import ru.checkdev.notification.domain.Profile;
 
 import java.time.Duration;
@@ -24,25 +30,50 @@ import java.util.function.Supplier;
 @Service
 public class TgAuthCallWebClient implements TgCall {
     private static final Logger LOG = LoggerFactory.getLogger(TgAuthCallWebClient.class);
+    private static final String AUTH_RETRY = "authRetry";
+    private static final String AUTH_CIRCUIT_BREAKER = "authCircuitBreaker";
     private static final int DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 2;
+    private static final Duration DEFAULT_CIRCUIT_BREAKER_OPEN_STATE = Duration.ofMinutes(1);
 
-    @Value("${server.auth}")
-    private String urlServiceAuth;
-    @Value("${tg.auth.retry.attempts:3}")
-    private int retryAttempts;
-    @Value("${tg.auth.retry.delay-ms:1000}")
-    private long retryDelayMs;
-    @Value("${tg.auth.circuit-breaker.failure-threshold:2}")
-    private int circuitBreakerFailureThreshold;
+    private final WebClient webClient;
+    private final Retry retry;
+    private final io.github.resilience4j.circuitbreaker.CircuitBreaker circuitBreaker;
 
-    private CircuitBreaker circuitBreaker;
-
-    public TgAuthCallWebClient() {
+    public TgAuthCallWebClient(
+            @Value("${server.auth}") String urlServiceAuth,
+            @Value("${resilience4j.retry.instances.authRetry.maxAttempts:3}") int retryAttempts,
+            @Value("${resilience4j.retry.instances.authRetry.waitDuration:500ms}")
+            Duration retryWaitDuration,
+            @Value(
+                    "${resilience4j.circuitbreaker.instances.authCircuitBreaker."
+                            + "failureRateThreshold:50}"
+            ) float failureRateThreshold,
+            @Value(
+                    "${resilience4j.circuitbreaker.instances.authCircuitBreaker."
+                            + "waitDurationInOpenState:10000ms}"
+            ) Duration waitDurationInOpenState,
+            @Value(
+                    "${resilience4j.circuitbreaker.instances.authCircuitBreaker."
+                            + "slidingWindowSize:100}"
+            ) int slidingWindowSize,
+            @Value(
+                    "${resilience4j.circuitbreaker.instances.authCircuitBreaker."
+                            + "permittedNumberOfCallsInHalfOpenState:10}"
+            ) int permittedNumberOfCallsInHalfOpenState
+    ) {
+        this(
+                WebClient.create(urlServiceAuth),
+                buildRetry(retryAttempts, retryWaitDuration),
+                buildCircuitBreaker(
+                        failureRateThreshold,
+                        waitDurationInOpenState,
+                        slidingWindowSize,
+                        permittedNumberOfCallsInHalfOpenState
+                )
+        );
     }
 
-    public TgAuthCallWebClient(String urlServiceAuth,
-                               int retryAttempts,
-                               long retryDelayMs) {
+    public TgAuthCallWebClient(String urlServiceAuth, int retryAttempts, long retryDelayMs) {
         this(
                 urlServiceAuth,
                 retryAttempts,
@@ -51,15 +82,18 @@ public class TgAuthCallWebClient implements TgCall {
         );
     }
 
-    public TgAuthCallWebClient(String urlServiceAuth,
-                               int retryAttempts,
-                               long retryDelayMs,
-                               int circuitBreakerFailureThreshold) {
-        this.urlServiceAuth = urlServiceAuth;
-        this.retryAttempts = retryAttempts;
-        this.retryDelayMs = retryDelayMs;
-        this.circuitBreakerFailureThreshold = circuitBreakerFailureThreshold;
-        this.circuitBreaker = new CircuitBreaker(circuitBreakerFailureThreshold);
+    public TgAuthCallWebClient(String urlServiceAuth, int retryAttempts, long retryDelayMs, int circuitBreakerFailureThreshold) {
+        this(
+                WebClient.create(urlServiceAuth),
+                buildRetry(retryAttempts, Duration.ofMillis(Math.max(retryDelayMs, 0L))),
+                buildTestCircuitBreaker(circuitBreakerFailureThreshold)
+        );
+    }
+
+    private TgAuthCallWebClient( WebClient webClient, Retry retry, CircuitBreaker circuitBreaker) {
+        this.webClient = webClient;
+        this.retry = retry;
+        this.circuitBreaker = circuitBreaker;
     }
 
     /**
@@ -70,11 +104,11 @@ public class TgAuthCallWebClient implements TgCall {
      */
     @Override
     public Mono<Profile> doGet(String url) {
-        return withCircuitBreaker("GET", url, () -> withRetry("GET", url, () -> WebClient.create(urlServiceAuth)
+        return execute("GET", url, () -> webClient
                 .get()
                 .uri(url)
                 .retrieve()
-                .bodyToMono(Profile.class)));
+                .bodyToMono(Profile.class));
     }
 
     /**
@@ -86,55 +120,28 @@ public class TgAuthCallWebClient implements TgCall {
      */
     @Override
     public Mono<Object> doPost(String url, Profile profile) {
-        return withCircuitBreaker("POST", url, () -> withRetry("POST", url, () -> WebClient.create(urlServiceAuth)
+        return execute("POST", url, () -> webClient
                 .post()
                 .uri(url)
                 .bodyValue(profile)
                 .retrieve()
-                .bodyToMono(Object.class)));
+                .bodyToMono(Object.class));
     }
 
     @Override
     public Mono<Object> doPost(String url) {
-        return withCircuitBreaker("POST", url, () -> withRetry("POST", url, () -> WebClient.create(urlServiceAuth)
+        return execute("POST", url, () -> webClient
                 .post()
                 .uri(url)
                 .retrieve()
-                .bodyToMono(Object.class)));
+                .bodyToMono(Object.class));
     }
 
-    private <T> Mono<T> withCircuitBreaker(String method, String url, Supplier<Mono<T>> request) {
-        return circuitBreaker().execute(method, url, request, this::isCircuitBreakerFailure);
-    }
-
-    /**
-     * Метод с ретраймами
-     *
-     * @param method  Метод HTTP
-     * @param url     URL http
-     * @param request Запрос
-     * @return Mono<T>
-     */
-    private <T> Mono<T> withRetry(String method, String url, Supplier<Mono<T>> request) {
-        long attempts = Math.max(retryAttempts, 1);
-        long delay = Math.max(retryDelayMs, 0L);
+    private <T> Mono<T> execute(String method, String url, Supplier<Mono<T>> request) {
         return Mono.defer(request)
-                .retryWhen(Retry.fixedDelay(attempts - 1, Duration.ofMillis(delay))
-                        .filter(this::isRetryable)
-                        .doBeforeRetry(signal -> LOG.warn(
-                                "Retry auth {} {} attempt {} failed: {}",
-                                method,
-                                url,
-                                signal.totalRetries() + 1,
-                                signal.failure().getMessage()
-                        ))
-                        .onRetryExhaustedThrow((spec, signal) -> signal.failure()))
-                .doOnError(err -> LOG.error(
-                        "Auth {} {} failed: {}",
-                        method,
-                        url,
-                        err.getMessage()
-                ));
+                .transformDeferred(RetryOperator.of(retry))
+                .transformDeferred(CircuitBreakerOperator.of(circuitBreaker))
+                .doOnError(err -> logFailure(method, url, err));
     }
 
     /**
@@ -142,7 +149,7 @@ public class TgAuthCallWebClient implements TgCall {
      * @param throwable
      * @return
      */
-    private boolean isRetryable(Throwable throwable) {
+    private static boolean isRetryable(Throwable throwable) {
         if (throwable instanceof WebClientRequestException) {
             return true;
         }
@@ -155,18 +162,99 @@ public class TgAuthCallWebClient implements TgCall {
      * @param throwable
      * @return  
      */
-    private boolean isCircuitBreakerFailure(Throwable throwable) {
+    private static boolean isCircuitBreakerFailure(Throwable throwable) {
         return isRetryable(throwable);
     }
 
     /**
-     * Метод для получения экземпляра CircuitBreaker с ленивой инициализацией
-     * @return 
+     * Метод логирует ошибки, возникающие при выполнении запросов, с учетом типа ошибки (CallNotPermittedException или другие)
+     * @param method
+     * @param url
+     * @param throwable
      */
-    private CircuitBreaker circuitBreaker() {
-        if (circuitBreaker == null) {
-            circuitBreaker = new CircuitBreaker(circuitBreakerFailureThreshold);
+    private void logFailure(String method, String url, Throwable throwable) {
+        if (throwable instanceof CallNotPermittedException) {
+            LOG.warn("Auth {} {} skipped by circuit breaker: {}", method, url, throwable.getMessage());
+            return;
         }
-        return circuitBreaker;
+        LOG.error("Auth {} {} failed: {}", method, url, throwable.getMessage());
+    }
+
+    /**
+     * Метод строит конфигурацию для Retry, 
+     * учитывая количество попыток, время ожидания между попытками и типы исключений, 
+     * при которых следует выполнять повторные попытки
+     * @param retryAttempts
+     * @param retryWaitDuration
+     * @return
+     */
+    private static Retry buildRetry(int retryAttempts, Duration retryWaitDuration) {
+        RetryConfig config = RetryConfig.custom()
+                .maxAttempts(Math.max(retryAttempts, 1))
+                .waitDuration(safeDuration(retryWaitDuration))
+                .retryOnException(TgAuthCallWebClient::isRetryable)
+                .failAfterMaxAttempts(true)
+                .build();
+        return Retry.of(AUTH_RETRY, config);
+    }
+
+    private static CircuitBreaker buildCircuitBreaker(
+            float failureRateThreshold,
+            Duration waitDurationInOpenState,
+            int slidingWindowSize,
+            int permittedNumberOfCallsInHalfOpenState
+    ) {
+        CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+                .failureRateThreshold(normalizeFailureRate(failureRateThreshold))
+                .waitDurationInOpenState(safeDuration(waitDurationInOpenState))
+                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .slidingWindowSize(Math.max(slidingWindowSize, 1))
+                .permittedNumberOfCallsInHalfOpenState(
+                        Math.max(permittedNumberOfCallsInHalfOpenState, 1)
+                )
+                .recordException(TgAuthCallWebClient::isCircuitBreakerFailure)
+                .build();
+        return io.github.resilience4j.circuitbreaker.CircuitBreaker.of(
+                AUTH_CIRCUIT_BREAKER,
+                config
+        );
+    }
+
+    private static CircuitBreaker buildTestCircuitBreaker(int circuitBreakerFailureThreshold) {
+        int failureThreshold = Math.max(circuitBreakerFailureThreshold, 1);
+        CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+                .failureRateThreshold(100)
+                .waitDurationInOpenState(DEFAULT_CIRCUIT_BREAKER_OPEN_STATE)
+                .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)
+                .slidingWindowSize(failureThreshold)
+                .minimumNumberOfCalls(failureThreshold)
+                .permittedNumberOfCallsInHalfOpenState(1)
+                .recordException(TgAuthCallWebClient::isCircuitBreakerFailure)
+                .build();
+        return io.github.resilience4j.circuitbreaker.CircuitBreaker.of(
+                AUTH_CIRCUIT_BREAKER,
+                config
+        );
+    }
+
+    /**
+     * Метод нормализует значение порога отказов, гарантируя, что оно находится в пределах от 1 до 100, что является допустимым диапазоном для конфигурации CircuitBreaker
+     * @param failureRateThreshold
+     * @return
+     */
+    private static float normalizeFailureRate(float failureRateThreshold) {
+        return Math.min(Math.max(failureRateThreshold, 1), 100);
+    }
+
+    /**
+     * Метод проверяет, что переданная длительность не является null и не отрицательной, возвращая безопасное значение для конфигурации CircuitBreaker
+     * @param duration
+     * @return
+     */
+    private static Duration safeDuration(Duration duration) {
+        if (duration == null || duration.isNegative()) {
+            return Duration.ZERO;
+        }
+        return duration;
     }
 }
