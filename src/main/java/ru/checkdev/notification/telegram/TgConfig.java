@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
-import ru.checkdev.notification.service.EurekaUriProvider;
 import ru.checkdev.notification.service.UserTelegramService;
 import ru.checkdev.notification.telegram.action.Action;
 import ru.checkdev.notification.telegram.action.bind.*;
@@ -46,9 +45,8 @@ public class TgConfig {
     private String username;
     @Value("${tg.token}")
     private String token;
-
-    private static final String SERVICE_ID = "site";
-    private final EurekaUriProvider uriProvider;
+    @Value("${server.site.url.login}")
+    private String siteLoginUrl;
 
     @Bean
     public Bot initTg() throws TelegramApiException {
@@ -67,9 +65,8 @@ public class TgConfig {
                         new RegPutNameAction(sessionTg),
                         new RegAskEmailAction(userTelegramService),
                         new RegPutEmailAction(sessionTg),
-                        new RegCheckEmailAction(sessionTg),
-                        new RegSaveUserAction(sessionTg, tgCall, userTelegramService,
-                                uriProvider.getUri(SERVICE_ID))
+                        new RegCheckEmailAction(sessionTg, tgCall),
+                        new RegSaveUserAction(sessionTg, tgCall, userTelegramService, siteLoginUrl)
                 ),
                 "/check", List.of(new CheckAction(sessionTg, tgCall, userTelegramService)),
                 "/forget", List.of(new ForgetAction(sessionTg, tgCall, userTelegramService)),
@@ -80,7 +77,12 @@ public class TgConfig {
                         new BindAskPasswordAction(),
                         new BindPutPasswordAction(sessionTg),
                         new BindAccountAction(sessionTg, tgCall, userTelegramService)),
-                "/unbind", List.of(new UnbindAccountAction(userTelegramService))
+                "/unbind", List.of(
+                        new UnbindAskEmailAction(userTelegramService),
+                        new BindPutEmailAction(sessionTg),
+                        new BindAskPasswordAction(),
+                        new BindPutPasswordAction(sessionTg),
+                        new UnbindAccountAction(sessionTg, tgCall, userTelegramService))
         );
         TgBot menu = new TgBot(actionMap, username, token);
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);

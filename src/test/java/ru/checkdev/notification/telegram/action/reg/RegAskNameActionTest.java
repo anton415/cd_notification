@@ -1,6 +1,7 @@
 package ru.checkdev.notification.telegram.action.reg;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Chat;
@@ -10,6 +11,10 @@ import ru.checkdev.notification.domain.UserTelegram;
 import ru.checkdev.notification.repository.SubscribeTopicRepositoryFake;
 import ru.checkdev.notification.repository.UserTelegramRepositoryFake;
 import ru.checkdev.notification.service.UserTelegramService;
+import ru.checkdev.notification.telegram.TgBot;
+import ru.checkdev.notification.telegram.action.Action;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -34,6 +39,7 @@ class RegAskNameActionTest {
         regAskNameAction = new RegAskNameAction(userTelegramService);
         message = new Message();
         update = new Update();
+        TgBot.getBindingBy().clear();
     }
 
     @Test
@@ -51,6 +57,7 @@ class RegAskNameActionTest {
     }
 
     @Test
+    @DisplayName("При регистрации нового пользователя, если аккаунт Telegram не зарегистрирован, то возвращаем сообщение с просьбой ввести имя")
     void whenAskNameActionChatIdIsEmptyThenReturnMessageEnterName() {
         message.setChat(CHAT);
         update.setMessage(message);
@@ -60,5 +67,19 @@ class RegAskNameActionTest {
         String actual = sendMessage.getText();
 
         assertThat(actual).isEqualTo(expect);
+    }
+
+    @Test
+    @DisplayName("При регистрации нового пользователя, если аккаунт Telegram уже зарегистрирован, то удаляем сценарий регистрации")
+    void whenAskNameActionChatIdIsPresentThenRemoveRegistrationScenario() {
+        message.setChat(CHAT);
+        update.setMessage(message);
+        UserTelegram userTelegram = new UserTelegram(0, 1, CHAT.getId(), false);
+        userTelegramService.save(userTelegram);
+        TgBot.getBindingBy().put(String.valueOf(CHAT.getId()), List.<Action>of().iterator());
+
+        regAskNameAction.handle(update);
+
+        assertThat(TgBot.getBindingBy()).doesNotContainKey(String.valueOf(CHAT.getId()));
     }
 }
