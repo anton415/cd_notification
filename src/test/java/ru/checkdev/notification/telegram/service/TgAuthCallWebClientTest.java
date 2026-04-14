@@ -33,7 +33,7 @@ class TgAuthCallWebClientTest {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.start();
         String url = "http://localhost:" + server.getAddress().getPort();
-        tgAuthCallWebClient = new TgAuthCallWebClient(url, 3, 10);
+        tgAuthCallWebClient = new TgAuthCallWebClient(url, 3, 10, 2);
     }
 
     @AfterEach
@@ -117,6 +117,60 @@ class TgAuthCallWebClientTest {
         assertThatThrownBy(() -> tgAuthCallWebClient.doGet("/person/400").block())
                 .hasMessageContaining("400");
         assertThat(attempts.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Когда circuit breaker открыт, то следующий запрос не отправляется в auth")
+    void whenCircuitBreakerIsOpenThenSkipNextRequest() {
+        tgAuthCallWebClient = new TgAuthCallWebClient(
+                "http://localhost:" + server.getAddress().getPort(),
+                3,
+                10,
+                1
+        );
+        AtomicInteger attempts = new AtomicInteger();
+        server.createContext("/person/503", exchange -> {
+            attempts.incrementAndGet();
+            sendResponse(exchange, 503, "{\"error\":\"temporary\"}");
+        });
+
+        assertThatThrownBy(() -> tgAuthCallWebClient.doGet("/person/503").block())
+                .hasMessageContaining("503");
+        assertThatThrownBy(() -> tgAuthCallWebClient.doGet("/person/503").block())
+                .hasMessageContaining("Circuit breaker is OPEN");
+        assertThat(attempts.get()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("Когда ошибка клиента 400, то circuit breaker не должен открываться")
+    void whenClientErrorThenCircuitBreakerShouldStayClosed() {
+        tgAuthCallWebClient = new TgAuthCallWebClient(
+                "http://localhost:" + server.getAddress().getPort(),
+                3,
+                10,
+                1
+        );
+        AtomicInteger clientErrorAttempts = new AtomicInteger();
+        AtomicInteger successAttempts = new AtomicInteger();
+        server.createContext("/person/400-then-200", exchange -> {
+            clientErrorAttempts.incrementAndGet();
+            sendResponse(exchange, 400, "{\"error\":\"bad request\"}");
+        });
+        server.createContext("/person/200", exchange -> {
+            successAttempts.incrementAndGet();
+            sendResponse(exchange, 200, """
+                    {"id":100,"username":"username","email":"mail","password":"password","privacy":true}
+                    """);
+        });
+
+        assertThatThrownBy(() -> tgAuthCallWebClient.doGet("/person/400-then-200").block())
+                .hasMessageContaining("400");
+
+        Profile actual = tgAuthCallWebClient.doGet("/person/200").block();
+
+        assertThat(actual.getId()).isEqualTo(100);
+        assertThat(clientErrorAttempts.get()).isEqualTo(1);
+        assertThat(successAttempts.get()).isEqualTo(1);
     }
 
     private void sendResponse(HttpExchange exchange, int code, String body) throws IOException {
