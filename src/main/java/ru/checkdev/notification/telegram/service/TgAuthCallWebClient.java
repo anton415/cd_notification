@@ -90,7 +90,7 @@ public class TgAuthCallWebClient implements TgCall {
         );
     }
 
-    private TgAuthCallWebClient( WebClient webClient, Retry retry, CircuitBreaker circuitBreaker) {
+    private TgAuthCallWebClient(WebClient webClient, Retry retry, CircuitBreaker circuitBreaker) {
         this.webClient = webClient;
         this.retry = retry;
         this.circuitBreaker = circuitBreaker;
